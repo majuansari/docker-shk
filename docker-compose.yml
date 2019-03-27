@@ -1,0 +1,235 @@
+version: '3.1'
+volumes:
+    prometheus_data:
+      driver_opts:
+        type: none
+        device: $PWD/data/prometheus
+        o: bind
+    grafana_data:
+      driver_opts:
+        type: none
+        o: bind
+        device: $PWD/data/grafana
+
+networks:
+  shukran-layer:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+          - subnet: 172.25.0.0/24
+services:
+### PHP-FPM  ###
+    php-fpm:
+        build:
+            context: ./docker/php-fpm/7.1
+        expose:
+            - "9000"
+        ports:
+            - "2222:22" # ssh
+            - "9100:9100" # ssh
+        volumes:
+            - ..:/var/www/html/shukran
+        # env_file: .env
+        networks:
+            - shukran-layer
+        extra_hosts:
+            - "cms.local:172.25.0.101"
+            - "api.local:172.25.0.101"
+        restart: always
+
+### django ###
+#    django:
+#      build:
+#            context: ./docker/django
+#      working_dir: /var/www/html/django/mysite
+#      command: python3 manage.py runserver 0.0.0.0:8000
+#      volumes:
+#            - ../django/mysite:/var/www/html/django/mysite
+#      ports:
+##            - "2121:22" # ssh
+#        - "8484:8000"
+#      networks:
+#            - shukran-layer
+#        # env_file: .env
+##        restart: always
+
+    go:
+      build:
+            context: ./docker/go
+      restart: always
+      ports:
+          - 3999:3434
+      volumes:
+        - ../../gimg:/go/src/gimg
+      working_dir: /go/src/gimg
+      command:  tail -f /dev/null
+      networks:
+            - shukran-layer
+#### Nginx ####
+
+    nginx:
+        build:
+            context: ./docker/nginx
+            args:
+                - PHP_UPSTREAM=${PHP_UPSTREAM}
+        volumes:
+            - ..:/var/www/html/shukran
+        ports:
+            - "8001:80"
+            - "80:80"
+            - "444:443"
+        links:
+            - php-fpm
+            - go
+        networks:
+            shukran-layer:
+                ipv4_address: '172.25.0.101'
+        restart: always
+
+### MySQL ###
+
+    mysql:
+        build:
+            context: ./docker/mysql/5.7
+        volumes:
+            - ./data/mysql:/var/lib/mysql
+        ports:
+            - "3306:3306"
+        env_file: .env
+        restart: always
+        networks:
+            - shukran-layer
+
+### Phpmyadmin ###
+
+    phpmyadmin:
+        image: phpmyadmin/phpmyadmin:4.7
+        environment:
+            - PMA_ARBITRARY=1
+        restart: always
+        ports:
+            - 8181:80
+        links:
+            - mysql
+        restart: always
+        networks:
+            - shukran-layer
+    redis:
+        image: redis:3.2
+        ports:
+            - 6379:6379
+        volumes:
+            - ./data/redis:/data/
+        restart: always
+        networks:
+            - shukran-layer
+
+    redis2:
+        image: redis:3.2
+        ports:
+            - 6479:6379
+        volumes:
+            - ./data/redis2:/data/
+        restart: always
+        networks:
+            - shukran-layer
+    zipkin:
+      image: openzipkin/zipkin
+      container_name: zipkin
+      hostname: zipkin
+      ports:
+        - 9411:9411
+      restart: always
+      networks:
+            shukran-layer:
+                ipv4_address: '172.25.0.201'
+
+    jaeger:
+      image: jaegertracing/all-in-one:latest
+      container_name: jaeger
+      hostname: jaeger
+      ports:
+      - 5775:5775/udp
+      - 6831:6831/udp
+      - 6832:6832/udp
+      - 5778:5778
+      - 16686:16686
+      - 14268:14268
+      - 9412:9411
+      restart: always
+      networks:
+            shukran-layer:
+                ipv4_address: '172.25.0.203'
+      environment:
+        - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+    prometheus:
+      image: prom/prometheus
+      container_name: prometheus
+      hostname: prometheus
+      volumes:
+        - ./docker/prometheus/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+        - prometheus_data:/prometheus
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+      ports:
+        - 9090:9090
+      networks:
+            shukran-layer:
+                ipv4_address: '172.25.0.202'
+    grafana:
+      image: grafana/grafana
+      depends_on:
+        - prometheus
+      ports:
+        - 3001:3000
+#      environment:
+#       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      volumes:
+       - grafana_data:/var/lib/grafana
+       - ./data/grafana/logs:/var/log/grafana
+       - ./docker/grafana/provisioning/:/etc/grafana/provisioning/
+      networks:
+        - shukran-layer
+      networks:
+              shukran-layer:
+                  ipv4_address: '172.25.0.204'
+      restart: always
+
+    netdata:
+      image: netdata/netdata
+      ports:
+        - 19999:19999
+      cap_add:
+        - SYS_PTRACE
+      security_opt:
+        - apparmor:unconfined
+      volumes:
+        - /proc:/host/proc:ro
+        - /sys:/host/sys:ro
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+      networks:
+        - shukran-layer
+
+    cadvisor:
+      image: google/cadvisor
+      volumes:
+        - /:/rootfs:ro
+        - /var/run:/var/run:rw
+        - /sys:/sys:ro
+        - /var/lib/docker/:/var/lib/docker:ro
+      ports:
+        - 8080:8080
+      networks:
+        - shukran-layer
+
+#    mailcatcher:
+#        image: tophfr/mailcatcher
+#        restart: always
+#        ports:
+#            - 8003:80
+#        restart: always
+#        networks:
+#            - shukran-layer
+
