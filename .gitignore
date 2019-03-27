@@ -1,0 +1,16 @@
+logs/*
+vendor/*
+/.idea
+.env
+**/.DS_Store
+/yarn.lock
+/yarn-error.log
+robots.txt
+.scannerwork/
+.sonar/
+/_ide_helper.php
+/bootstrap/cache/*
+.php_cs.cache
+# exception to the rule
+scratch.md
+workspace.xml
