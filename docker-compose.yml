@@ -233,3 +233,23 @@ services:
 #        networks:
 #            - shukran-layer
 
+
+    dev:
+        image: tianon/true
+        depends_on:
+            - php-fpm
+            - nginx
+            - mysql
+            - go
+            - phpmyadmin
+            - redis
+            - redis2
+    mon:
+        image: tianon/true
+        depends_on:
+            - grafana
+            - zipkin
+            - jaeger
+            - prometheus
+            - netdata
+            - cadvisor
