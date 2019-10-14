@@ -18,6 +18,7 @@ networks:
       driver: default
       config:
           - subnet: 172.25.0.0/24
+
 services:
 ### PHP-FPM  ###
     php-fpm:
@@ -38,22 +39,23 @@ services:
             - "api.local:172.25.0.101"
         restart: always
 
-### django ###
-#    django:
-#      build:
-#            context: ./docker/django
-#      working_dir: /var/www/html/django/mysite
-#      command: python3 manage.py runserver 0.0.0.0:8000
-#      volumes:
-#            - ../django/mysite:/var/www/html/django/mysite
-#      ports:
-##            - "2121:22" # ssh
-#        - "8484:8000"
-#      networks:
-#            - shukran-layer
-#        # env_file: .env
-##        restart: always
+### Django ###
+  # django:
+    # build:
+    #   context: ./docker/django
+    # working_dir: /var/www/html/django/mysite
+    # command: python3 manage.py runserver 0.0.0.0:8000
+    # volumes:
+    #   - ../django/mysite:/var/www/html/django/mysite
+    # ports:
+    #   - "2121:22" # ssh
+    #   - "8484:8000"
+    # networks:
+    #   - shukran-layer
+    # env_file: .env
+    # restart: always
 
+### Go ###
     go:
       build:
             context: ./docker/go
@@ -66,8 +68,8 @@ services:
       command:  tail -f /dev/null
       networks:
             - shukran-layer
-#### Nginx ####
 
+#### Nginx ####
     nginx:
         build:
             context: ./docker/nginx
@@ -88,7 +90,6 @@ services:
         restart: always
 
 ### MySQL ###
-
     mysql:
         build:
             context: ./docker/mysql/5.7
@@ -102,7 +103,6 @@ services:
             - shukran-layer
 
 ### Phpmyadmin ###
-
     phpmyadmin:
         image: phpmyadmin/phpmyadmin:4.7
         environment:
@@ -115,6 +115,8 @@ services:
         restart: always
         networks:
             - shukran-layer
+
+### Redis ###
     redis:
         image: redis:3.2
         ports:
@@ -125,6 +127,7 @@ services:
         networks:
             - shukran-layer
 
+### Redis 2 ###
     redis2:
         image: redis:3.2
         ports:
@@ -134,6 +137,8 @@ services:
         restart: always
         networks:
             - shukran-layer
+
+### Zipkin ###
     zipkin:
       image: openzipkin/zipkin
       container_name: zipkin
@@ -145,6 +150,7 @@ services:
             shukran-layer:
                 ipv4_address: '172.25.0.201'
 
+### Jaeger ###
     jaeger:
       image: jaegertracing/all-in-one:latest
       container_name: jaeger
@@ -163,6 +169,8 @@ services:
                 ipv4_address: '172.25.0.203'
       environment:
         - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+
+### Prometheus ###
     prometheus:
       image: prom/prometheus
       container_name: prometheus
@@ -178,14 +186,16 @@ services:
       networks:
             shukran-layer:
                 ipv4_address: '172.25.0.202'
+
+### Grafana ###
     grafana:
       image: grafana/grafana
       depends_on:
         - prometheus
       ports:
         - 3001:3000
-#      environment:
-#       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      # environment:
+      #   - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
       volumes:
        - grafana_data:/var/lib/grafana
        - ./data/grafana/logs:/var/log/grafana
@@ -197,6 +207,74 @@ services:
                   ipv4_address: '172.25.0.204'
       restart: always
 
+### Elastic Search ###
+    elasticsearch:
+      container_name: elasticsearch
+      build: ./docker/docker/elasticsearch/
+      volumes:
+        - ./docker/data/elastic/data:/usr/share/elasticsearch/data
+        - ./docker/data/elastic/plugins:/usr/share/elasticsearch/plugins
+      environment: 
+        - discovery.type=single-node
+        - xpack.security.enabled=false
+        - cluster.name=shukran-log-cluster
+        - bootstrap.memory_lock=true
+        - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      ulimits:
+        memlock:
+          soft: -1
+          hard: -1
+      networks: 
+        - shukran-layer
+      ports:
+        - 9201:9200
+
+### Logstash ###
+    logstash:
+      container_name: logstash
+      image: docker.elastic.co/logstash/logstash:7.1.1
+      depends_on:
+        - elasticsearch
+      ports:
+        - 5045:5044
+      volumes:
+        - ./docker/docker/logstash:/logstash_dir
+      command: logstash -f /logstash_dir/logstash.conf
+      networks:
+        - shukran-layer
+
+### Kibana ###
+    kibana:
+      container_name: kibana
+      image: docker.elastic.co/kibana/kibana:7.1.1
+      depends_on:
+        - elasticsearch
+      ports:
+        - 5602:5601
+      networks:
+        shukran-layer:
+          ipv4_address: '172.25.0.103'
+
+### Filebeat ###
+    filebeat:
+      container_name: filebeat
+      image: docker.elastic.co/beats/filebeat:7.0.0
+      user: root
+      networks:
+        - shukran-layer
+      depends_on:
+        - kibana
+      volumes:
+        - ./docker/docker/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+        - ./api/storage/logs/response_time.log:/usr/share/filebeat/response_time.log
+      environment:
+        - ELASTICSEARCH_HOST=elasticsearch:9200
+        - KIBANA_HOST=172.25.0.103:5601
+      command: filebeat -e -v -c /usr/share/filebeat/filebeat.yml
+      labels:
+        co.elastic.logs/disable: false
+
+### NetData ###
     netdata:
       image: netdata/netdata
       ports:
@@ -212,6 +290,7 @@ services:
       networks:
         - shukran-layer
 
+### Cadvisor ###
     cadvisor:
       image: google/cadvisor
       volumes:
@@ -224,14 +303,15 @@ services:
       networks:
         - shukran-layer
 
-#    mailcatcher:
-#        image: tophfr/mailcatcher
-#        restart: always
-#        ports:
-#            - 8003:80
-#        restart: always
-#        networks:
-#            - shukran-layer
+### Mailcatcher ###
+    # mailcatcher:
+      # image: tophfr/mailcatcher
+      # restart: always
+      # ports:
+      #   - 8003:80
+      # restart: always
+      # networks:
+      #   - shukran-layer
 
 
     dev:
