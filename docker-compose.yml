@@ -333,3 +333,7 @@ services:
             - prometheus
             - netdata
             - cadvisor
+            - elasticsearch
+            - logstash
+            - kibana
+            - filebeat
